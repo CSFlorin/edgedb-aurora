@@ -20,10 +20,20 @@ Parameters:
     Description: "The name of this EdgeDB service stack."
     Type: String
     Default: "project"
-    AllowedPattern: '[a-z][0-9a-z-]{1,24}'
+    AllowedPattern: "[a-z][0-9a-z-]{1,24}"
     ConstraintDescription: >
       must only contain lowercase letters and numbers, start with
       a lowercase letter, and be between 2 and 25 characters long
+
+  # TLSKey:
+  #   Description: "TLS Key."
+  #   Type: String
+  #   NoEcho: True
+
+  # TLSCert:
+  #   Description: "TLS Cert."
+  #   Type: String
+  #   NoEcho: True
 
 Resources:
   # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ec2-vpc.html
@@ -52,7 +62,6 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
-
 
   # ------------------
   # PUBLIC NETWORK ACL
@@ -94,7 +103,6 @@ Resources:
       RuleAction: allow
       Egress: true
       CidrBlock: "0.0.0.0/0"
-
 
   # -------------------
   # PRIVATE NETWORK ACL
@@ -366,7 +374,6 @@ Resources:
         - !Ref "SubnetAPrivate"
         - !Ref "SubnetBPrivate"
 
-
   # --------------
   # Aurora Cluster
   # --------------
@@ -377,6 +384,18 @@ Resources:
     Properties:
       Name: !Sub "edgedb-${InstanceName}-password"
       SecretString: !Ref SuperUserPassword
+
+  # AuroraTLSKey:
+  #   Type: "AWS::SecretsManager::Secret"
+  #   Properties:
+  #     Name: !Sub "edgedb-${InstanceName}-tls-key"
+  #     SecretString: !Ref TLSKey
+
+  # AuroraTLSCert:
+  #   Type: "AWS::SecretsManager::Secret"
+  #   Properties:
+  #     Name: !Sub "edgedb-${InstanceName}-tls-cert"
+  #     SecretString: !Ref TLSCert
 
   # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-rds-dbcluster.html
   AuroraCluster:
@@ -417,19 +436,20 @@ Resources:
     Type: "AWS::SecretsManager::Secret"
     Properties:
       Name: !Sub "edgedb-${InstanceName}-backend-dsn"
-      SecretString: !Join [
-        "",
-        [
-          "postgres://",
-          "postgres",
-          ":",
-          !Ref "SuperUserPassword",
-          "@",
-          !GetAtt "AuroraCluster.Endpoint.Address",
-          ":5432/",
-          "postgres"
-        ],
-      ]
+      SecretString:
+        !Join [
+          "",
+          [
+            "postgres://",
+            "postgres",
+            ":",
+            !Ref "SuperUserPassword",
+            "@",
+            !GetAtt "AuroraCluster.Endpoint.Address",
+            ":5432/",
+            "postgres",
+          ],
+        ]
 
   # ------------------
   # EdgeDB ECS Cluster
@@ -458,6 +478,8 @@ Resources:
                 Resource:
                   - !Ref DBPassword
                   - !Ref AuroraDSN
+                  - "[ARN]"
+                  - "[ARN]"
 
   # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-iam-role.html
   TaskRole:
@@ -507,7 +529,11 @@ Resources:
             - "edgedb-server"
           Environment:
             - Name: "EDGEDB_SERVER_TLS_CERT_MODE"
-              Value: "generate_self_signed"
+              Value: "require_file"
+            - Name: "EDGEDB_SERVER_TLS_CERT_FILE"
+              Value: "[ARN]"
+            - Name: "EDGEDB_SERVER_TLS_KEY_FILE"
+              Value: "[ARN]"
             - Name: "EDGEDB_SERVER_ADMIN_UI"
               Value: "enabled"
           Secrets:
@@ -515,6 +541,10 @@ Resources:
               ValueFrom: !Ref "DBPassword"
             - Name: "EDGEDB_SERVER_BACKEND_DSN"
               ValueFrom: !Ref "AuroraDSN"
+            # - Name: "EDGEDB_SERVER_TLS_CERT"
+            #   ValueFrom: !Ref "AuroraTLSCert"
+            # - Name: "EDGEDB_SERVER_TLS_KEY"
+            #   ValueFrom: !Ref "AuroraTLSKey"
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -596,11 +626,10 @@ Resources:
         - !Ref "SubnetBPublic"
 
 Outputs:
-
   PublicHostname:
     Description: "Host name of EdgeDB instance"
     Value: !GetAtt LoadBalancer.DNSName
-    
+
   SubnetAPublic:
     Description: "Subnet A public."
     Value: !Ref SubnetAPublic
