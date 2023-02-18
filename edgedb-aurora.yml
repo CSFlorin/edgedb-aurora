@@ -475,6 +475,8 @@ Resources:
               - Effect: Allow
                 Action:
                   - "secretsmanager:GetSecretValue"
+                  - "ssm:GetParameters"
+                  - "kms:Decrypt"
                 Resource:
                   - !Ref DBPassword
                   - !Ref AuroraDSN
